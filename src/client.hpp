@@ -23,15 +23,44 @@
 #define SBT_CLIENT_HPP
 
 #include "common.hpp"
+#include <fstream>
+#include "meta-info.hpp"
+#include "http/http-request.hpp"
 
 namespace sbt {
 
 class Client
 {
-public:
+public: 
+  int connectToServer(std::string portNum);
   Client(const std::string& port, const std::string& torrent)
   {
+    portNumber = port;
+    std::filebuf fb;
+    if (fb.open (torrent, std::ios::in)) {
+
+      // decode meta-info
+      std::istream is (&fb);
+      metaInfo.wireDecode(is);
+
+      fb.close();
+      connectToServer(port);
+
+    }
+    else {
+      std::cout << "you done fucked up";
+    } 
   }
+
+  MetaInfo getMetaInfo();
+  std::string getPortNumber();
+  //int connectToServer
+  HttpRequest makeHttpRequest();
+  void getTrackerInfo();
+  void sendTrackerRequest();
+private:
+  MetaInfo metaInfo;
+  std::string portNumber;
 };
 
 } // namespace sbt
