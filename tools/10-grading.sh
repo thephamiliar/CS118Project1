@@ -2,11 +2,11 @@
 
 echo "Run 7 test cases..."
 
-./tools/sbt-tracker 40000 tests/test-torrent/test.torrent &
+./tools/sbt-tracker 60207 tests/test-torrent/test.torrent &
 
 sleep 1
 
-./build/simple-bt 40000 tests/test-torrent/test.torrent >/tmp/peers-client &
+./build/simple-bt 60207 tests/test-torrent/test.torrent >/tmp/peers-client &
 # ./build/simple-bt 60207 tests/test-torrent/test.torrent 2>/dev/null >/tmp/peers-client &
 
 sleep 1

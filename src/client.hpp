@@ -26,6 +26,9 @@
 #include <fstream>
 #include "meta-info.hpp"
 #include "http/http-request.hpp"
+#include "http/http-response.hpp"
+#include "tracker-response.hpp"
+#include <vector>
 
 namespace sbt {
 
@@ -35,7 +38,7 @@ public:
   int connectToServer(std::string portNum);
   Client(const std::string& port, const std::string& torrent)
   {
-    portNumber = port;
+    serverPortNumber = port;
     std::filebuf fb;
     if (fb.open (torrent, std::ios::in)) {
 
@@ -53,14 +56,23 @@ public:
   }
 
   MetaInfo getMetaInfo();
-  std::string getPortNumber();
+  unsigned short getTrackerPortNumber() {
+    return trackerPortNumber;
+  }
+  std::string getServerPortNumber() {
+    return serverPortNumber;
+  }
   //int connectToServer
-  HttpRequest makeHttpRequest();
+  HttpRequest makeHttpRequest(bool includeEvent);
   void getTrackerInfo();
   void sendTrackerRequest();
 private:
   MetaInfo metaInfo;
-  std::string portNumber;
+  unsigned short trackerPortNumber;
+  std::string serverPortNumber;
+  HttpResponse trackerRes;
+  std::vector<PeerInfo> peer_list;
+  uint64_t interval;
 };
 
 } // namespace sbt
