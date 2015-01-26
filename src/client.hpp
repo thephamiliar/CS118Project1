@@ -51,7 +51,7 @@ public:
 
     }
     else {
-      std::cout << "you done fucked up";
+      std::cout << "didn't work";
     } 
   }
 
@@ -62,7 +62,7 @@ public:
   std::string getServerPortNumber() {
     return serverPortNumber;
   }
-  //int connectToServer
+  
   HttpRequest makeHttpRequest(bool includeEvent);
   void getTrackerInfo();
   void sendTrackerRequest();

@@ -41,7 +41,7 @@ int Client::connectToServer(std::string portNum) {
 
   req.formatRequest(buf);
   if (send(sockfd, buf, req.getTotalLength(), 0) == -1) {
-    perror("send took a shit");
+    perror("send");
   }
 
   char* recv_buf = new char[10000];
@@ -85,7 +85,7 @@ int Client::connectToServer(std::string portNum) {
 
 
     if (send(sockfd, new_buf, new_req.getTotalLength(), 0) == -1) {
-      perror("send took a shit");
+      perror("send");
     }
 
     int ret_val = recv(sockfd, recv_buf, 10000, 0);
