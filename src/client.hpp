@@ -23,56 +23,74 @@
 #define SBT_CLIENT_HPP
 
 #include "common.hpp"
-#include <fstream>
 #include "meta-info.hpp"
-#include "http/http-request.hpp"
-#include "http/http-response.hpp"
-#include "tracker-response.hpp"
-#include <vector>
 
 namespace sbt {
 
 class Client
 {
-public: 
-  int connectToServer(std::string portNum);
-  Client(const std::string& port, const std::string& torrent)
+public:
+  class Error : public std::runtime_error
   {
-    serverPortNumber = port;
-    std::filebuf fb;
-    if (fb.open (torrent, std::ios::in)) {
-
-      // decode meta-info
-      std::istream is (&fb);
-      metaInfo.wireDecode(is);
-
-      fb.close();
-      connectToServer(port);
-
+  public:
+    explicit
+    Error(const std::string& what)
+      : std::runtime_error(what)
+    {
     }
-    else {
-      std::cout << "didn't work";
-    } 
+  };
+
+public:
+  Client(const std::string& port,
+         const std::string& torrent);
+
+  void
+  run();
+
+  const std::string&
+  getTrackerHost() {
+    return m_trackerHost;
   }
 
-  MetaInfo getMetaInfo();
-  unsigned short getTrackerPortNumber() {
-    return trackerPortNumber;
+  const std::string&
+  getTrackerPort() {
+    return m_trackerPort;
   }
-  std::string getServerPortNumber() {
-    return serverPortNumber;
+
+  const std::string&
+  getTrackerFile() {
+    return m_trackerFile;
   }
-  
-  HttpRequest makeHttpRequest(bool includeEvent);
-  void getTrackerInfo();
-  void sendTrackerRequest();
+
 private:
-  MetaInfo metaInfo;
-  unsigned short trackerPortNumber;
-  std::string serverPortNumber;
-  HttpResponse trackerRes;
-  std::vector<PeerInfo> peer_list;
-  uint64_t interval;
+  void
+  loadMetaInfo(const std::string& torrent);
+
+  void
+  connectTracker();
+
+  void
+  sendTrackerRequest();
+
+  void
+  recvTrackerResponse();
+
+private:
+  MetaInfo m_metaInfo;
+  std::string m_trackerHost;
+  std::string m_trackerPort;
+  std::string m_trackerFile;
+
+  uint16_t m_clientPort;
+
+  int m_trackerSock;
+  int m_serverSock = -1;
+
+  fd_set m_readSocks;
+
+  uint64_t m_interval;
+  bool m_isFirstReq;
+  bool m_isFirstRes;
 };
 
 } // namespace sbt
