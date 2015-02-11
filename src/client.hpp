@@ -65,6 +65,7 @@ public:
   }
   void connectPeer(sbt::PeerInfo peer);
   void handshake(std::string peerId, int sock);
+  void bitfield(int sock);
 
 private:
   void
@@ -98,6 +99,8 @@ private:
 
   std::vector<PeerInfo> m_peers;
   std::set<std::string> m_connectedPeers;
+  char * m_bitfield;
+  int m_bitfield_size;
 };
 
 } // namespace sbt

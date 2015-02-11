@@ -43,6 +43,7 @@
 #include <set>
 
 #include "msg/handshake.hpp"
+#include "msg/msg-base.hpp"
 #include "util/buffer-stream.hpp"
 namespace sbt {
 
@@ -68,6 +69,23 @@ Client::run()
     sendTrackerRequest();
     m_isFirstReq = false;
     recvTrackerResponse();
+    int64_t file_length = m_metaInfo.getLength();
+    int64_t piece_length = m_metaInfo.getPieceLength();
+    std::vector<uint8_t> pieces = m_metaInfo.getPieces();
+    int num_bits = file_length / piece_length;
+    if (file_length % piece_length != 0) {
+      num_bits++;
+    }
+    int num_bytes = num_bits/8;
+    if (num_bytes % 8 != 0) {
+      num_bytes++;
+    }
+
+    m_bitfield = (char *) malloc(num_bytes);
+    memset(m_bitfield, 0, num_bytes);
+    m_bitfield_size = num_bytes;
+
+
     connectPeer(m_peers[1]);
     close(m_trackerSock);
     sleep(m_interval);
@@ -305,26 +323,55 @@ void Client::connectPeer(sbt::PeerInfo peer) {
 void Client::handshake(std::string peerId, int sock) {
 
     msg::HandShake hs(m_metaInfo.getHash(), peerId);
-    const char* msg = reinterpret_cast<const char *>((*hs.encode()).get());
-    int res = send(sock, msg, strlen(msg), 0);
+    int res = send(sock, reinterpret_cast<const char *>(hs.encode()->buf()), 68, 0);
     if ( res == -1) {
-      perror("send");
+      perror("handshake send");
       return;
     }
-    char* buf = (char *) malloc(1000);
+    char* buf = (char *) malloc(68);
 
-    res = recv(sock, buf, 1000, 0);
-
+    res = -1;
+    
+    std::cout <<"waiting..." << std::endl;
+    res = recv(sock, buf, 68, 0);
     if (res == -1) {
-      perror("recv");
-      return;
+      perror("handshake receive");
     }
+
     msg::HandShake received_hs;
     sbt::OBufferStream buf_stream;
-    buf_stream.write(buf, 1000);
+    buf_stream.write(buf, 68);
     BufferPtr buf_ptr = buf_stream.buf();
     received_hs.decode(buf_ptr);
-    std::cout << received_hs.getPeerId() << std::endl;
+    bitfield(sock);
+
+    //std::cout << received_hs.getPeerId() << std::endl;
 }
+
+void Client::bitfield(int sock) {
+  sbt::OBufferStream buf_stream;
+  buf_stream.write(m_bitfield, m_bitfield_size);
+  BufferPtr buf_ptr = buf_stream.buf();
+
+  msg::Bitfield bf(buf_ptr); 
+
+  int res = send(sock, reinterpret_cast<const char *>(bf.encode()->buf()), m_bitfield_size, 0); 
+  if (res == -1) {
+    perror("bitfield send");
+    return;
+  }
+
+  char * received_buf = (char *) malloc(m_bitfield_size);
+  res = recv(sock, received_buf, m_bitfield_size, 0);
+  if (res == -1) {
+    perror("bitfield receive");
+    return;
+  }
+  
+
+  std::cout << "got bitfield";
+
+}
+
 
 } // namespace sbt
