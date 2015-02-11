@@ -39,9 +39,11 @@
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
+#include <stdlib.h>
+#include <set>
 
-
-
+#include "msg/handshake.hpp"
+#include "util/buffer-stream.hpp"
 namespace sbt {
 
 Client::Client(const std::string& port, const std::string& torrent)
@@ -61,14 +63,15 @@ Client::Client(const std::string& port, const std::string& torrent)
 void
 Client::run()
 {
-  while (true) {
+  //while (true) {
     connectTracker();
     sendTrackerRequest();
     m_isFirstReq = false;
     recvTrackerResponse();
+    connectPeer(m_peers[1]);
     close(m_trackerSock);
     sleep(m_interval);
-  }
+  //}
 }
 
 void
@@ -146,7 +149,7 @@ Client::sendTrackerRequest()
   TrackerRequestParam param;
 
   param.setInfoHash(m_metaInfo.getHash());
-  param.setPeerId("01234567890123456789"); //TODO:
+  param.setPeerId("SIMPLEBT-TEST-PEERID"); //TODO:
   param.setIp("127.0.0.1"); //TODO:
   param.setPort(m_clientPort); //TODO:
   param.setUploaded(100); //TODO:
@@ -249,16 +252,79 @@ Client::recvTrackerResponse()
 
   TrackerResponse trackerResponse;
   trackerResponse.decode(dict);
-  const std::vector<PeerInfo>& peers = trackerResponse.getPeers();
+  m_peers = trackerResponse.getPeers();
   m_interval = trackerResponse.getInterval();
 
   if (m_isFirstRes) {
-    for (const auto& peer : peers) {
+    for (const auto& peer : m_peers) {
       std::cout << peer.ip << ":" << peer.port << std::endl;
     }
   }
 
   m_isFirstRes = false;
+}
+void Client::connectPeer(sbt::PeerInfo peer) {
+	// do not set up connection to client itself
+	if (peer.ip == "127.0.0.1" && peer.port == m_clientPort)
+	    return;
+	// do not set up connection with same peer
+	if (m_connectedPeers.find(peer.peerId) != m_connectedPeers.end())
+	    return;
+
+	int peerSock = socket(AF_INET, SOCK_STREAM, 0);
+
+	struct addrinfo hints;
+	struct addrinfo* res;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+
+	int status = 0;
+	if ((status = getaddrinfo(peer.ip.c_str(), std::to_string(peer.port).c_str(), &hints, &res)) != 0)
+		throw Error("Cannot resolve peer ip");
+
+	struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
+	char ipstr[INET_ADDRSTRLEN] = {'\0'};
+	inet_ntop(res->ai_family, &(ipv4->sin_addr), ipstr, sizeof(ipstr));
+
+	std::cout << "peer address" << ipstr << ":" << ntohs(ipv4->sin_port) << std::endl;
+
+	if (connect(peerSock, res->ai_addr, res->ai_addrlen) == -1) {
+		perror("connect");
+		throw Error("Cannot connect peer");
+	}
+
+	// if successfully connected, add to connected peers set
+	m_connectedPeers.insert(peer.peerId);
+	handshake(peer.peerId, peerSock);
+
+	freeaddrinfo(res);	
+}
+
+void Client::handshake(std::string peerId, int sock) {
+
+    msg::HandShake hs(m_metaInfo.getHash(), peerId);
+    const char* msg = reinterpret_cast<const char *>((*hs.encode()).get());
+    int res = send(sock, msg, strlen(msg), 0);
+    if ( res == -1) {
+      perror("send");
+      return;
+    }
+    char* buf = (char *) malloc(1000);
+
+    res = recv(sock, buf, 1000, 0);
+
+    if (res == -1) {
+      perror("recv");
+      return;
+    }
+    msg::HandShake received_hs;
+    sbt::OBufferStream buf_stream;
+    buf_stream.write(buf, 1000);
+    BufferPtr buf_ptr = buf_stream.buf();
+    received_hs.decode(buf_ptr);
+    std::cout << received_hs.getPeerId() << std::endl;
 }
 
 } // namespace sbt

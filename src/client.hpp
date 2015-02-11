@@ -24,6 +24,8 @@
 
 #include "common.hpp"
 #include "meta-info.hpp"
+#include "tracker-response.hpp"
+#include <set>
 
 namespace sbt {
 
@@ -61,6 +63,8 @@ public:
   getTrackerFile() {
     return m_trackerFile;
   }
+  void connectPeer(sbt::PeerInfo peer);
+  void handshake(std::string peerId, int sock);
 
 private:
   void
@@ -91,6 +95,9 @@ private:
   uint64_t m_interval;
   bool m_isFirstReq;
   bool m_isFirstRes;
+
+  std::vector<PeerInfo> m_peers;
+  std::set<std::string> m_connectedPeers;
 };
 
 } // namespace sbt
