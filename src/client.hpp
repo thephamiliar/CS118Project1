@@ -25,7 +25,7 @@
 #include "common.hpp"
 #include "meta-info.hpp"
 #include "tracker-response.hpp"
-#include <set>
+#include <map>
 
 namespace sbt {
 
@@ -63,11 +63,13 @@ public:
   getTrackerFile() {
     return m_trackerFile;
   }
-  void connectPeer(sbt::PeerInfo peer);
   void handshake(std::string peerId, int sock);
   void bitfield(int sock);
+  void interested(int sock, int index);
+  void request(int sock, int index);
+  void have(int index, int sock);
+  int getMessageLength(char* buf);
 
-private:
   void
   loadMetaInfo(const std::string& torrent);
 
@@ -80,7 +82,6 @@ private:
   void
   recvTrackerResponse();
 
-private:
   MetaInfo m_metaInfo;
   std::string m_trackerHost;
   std::string m_trackerPort;
@@ -98,10 +99,21 @@ private:
   bool m_isFirstRes;
 
   std::vector<PeerInfo> m_peers;
-  std::set<std::string> m_connectedPeers;
+  std::map<std::string, int> m_connectedPeers;
   char * m_bitfield;
   int m_bitfield_size;
+  int m_num_bits;
+  int m_amount_downloaded;
+  int m_amount_uploaded;
+  char * m_file_byte_array;
 };
+void* connectPeer(void * args);
+
+struct peer_args {
+  PeerInfo peerInfo;
+  Client* client;
+};
+
 
 } // namespace sbt
 
