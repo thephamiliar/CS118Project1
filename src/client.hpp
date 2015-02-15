@@ -63,6 +63,7 @@ public:
   getTrackerFile() {
     return m_trackerFile;
   }
+  void connectPeer(sbt::PeerInfo peer);
   void handshake(std::string peerId, int sock);
   void bitfield(int sock);
   void interested(int sock, int index);
@@ -107,8 +108,6 @@ public:
   int m_amount_uploaded;
   char * m_file_byte_array;
 };
-void* connectPeer(void * args);
-
 struct peer_args {
   PeerInfo peerInfo;
   Client* client;

@@ -41,13 +41,15 @@
 #include <time.h>
 #include <stdlib.h>
 #include <map>
-#include <pthread.h>
+//#include <pthread.h>
 
 #include "msg/handshake.hpp"
 #include "msg/msg-base.hpp"
 #include "util/buffer-stream.hpp"
 #include "util/hash.hpp"
 namespace sbt {
+
+void * callConnectPeer(void* args);
 
 Client::Client(const std::string& port, const std::string& torrent)
   : m_interval(3600)
@@ -67,7 +69,7 @@ Client::Client(const std::string& port, const std::string& torrent)
 void
 Client::run()
 {
-  pthread_t peer;
+  //pthread_t peer;
   struct sbt::peer_args *args; 
   do {
     connectTracker();
@@ -93,20 +95,17 @@ Client::run()
       m_num_bits = num_bits;
       m_file_byte_array = (char *) malloc(m_num_bits*m_metaInfo.getPieceLength());
     }
-
     m_isFirstReq = false;
-    for (auto it = m_peers.begin()+1; it != m_peers.end(); it++) {
-      if(m_connectedPeers.find(it->peerId) == m_connectedPeers.end()) {
-        args = (struct sbt::peer_args*)malloc(sizeof(struct sbt::peer_args));
-        args->peerInfo = *it;
-        args->client = this;
-        pthread_create(&peer,NULL, connectPeer, args);
-      }
+    for (auto it = m_peers.begin(); it != m_peers.end(); it++) {
+//        args = (struct sbt::peer_args*)malloc(sizeof(struct sbt::peer_args));
+//        args->peerInfo = *it;
+//        args->client = this;
+
+//        pthread_create(&peer,NULL, connectPeer, args);
+	connectPeer(*it);
     }
-    std::cout << "about to sleep" << std::endl;
-    std::cout <<"interval: " <<m_interval << std::endl;
     close(m_trackerSock);
-    sleep(m_interval+5);
+    sleep(m_interval);
   } while(m_amount_downloaded < m_metaInfo.getLength());
   std::cout << "finished downloading" <<std::endl;
 
@@ -305,21 +304,25 @@ Client::recvTrackerResponse()
 
   m_isFirstRes = false;
 }
-void* connectPeer(void * args) {
-        int code = pthread_detach(pthread_self());
+
+void * callConnectPeer(void * args) {
+  struct sbt::peer_args *p_args = (struct sbt::peer_args*)args;
+  p_args->client->connectPeer(p_args->peerInfo);
+  return NULL;
+}
+
+void Client::connectPeer(sbt::PeerInfo peer) {
+        /*int code = pthread_detach(pthread_self());
         if (code != 0) {
           std::cout <<"detach thread failed" << std::endl;
           return NULL;
-        }
-        sbt::peer_args* p_args = (struct peer_args*) args;
-        sbt::PeerInfo peer = p_args->peerInfo;
-        sbt::Client* client = p_args->client;
+        }*/
 	// do not set up connection to client itself
-	if (peer.ip == "127.0.0.1" && peer.port == client->m_clientPort)
-	    return NULL;
+	if (peer.ip == "127.0.0.1" && peer.port == m_clientPort)
+	    return;
 	// do not set up connection with same peer
-	if (client->m_connectedPeers.find(peer.peerId) != client->m_connectedPeers.end())
-	    return NULL;
+	if (m_connectedPeers.find(peer.peerId) != m_connectedPeers.end())
+	    return;
 
 	int peerSock = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -341,27 +344,28 @@ void* connectPeer(void * args) {
 	std::cout <<"trying to connect" << std::endl;
 	if (connect(peerSock, res->ai_addr, res->ai_addrlen) == -1) {
 		perror("connect");
-		return NULL;
+		return;
 	}
 
 	// if successfully connected, add to connected peers set
-	client->m_connectedPeers.insert(make_pair(peer.peerId, peerSock));
-	client->handshake(peer.peerId, peerSock);
-        client->m_connectedPeers.erase(peer.peerId);
+	m_connectedPeers.insert(make_pair(peer.peerId, peerSock));
+	handshake(peer.peerId, peerSock);
+        m_connectedPeers.erase(peer.peerId);
         close(peerSock);
 	freeaddrinfo(res);
         std::cout << "done" <<std::endl;
-	return NULL;	
 }
 
 void Client::handshake(std::string peerId, int sock) {
 
     msg::HandShake hs(m_metaInfo.getHash(), peerId);
+    std::cout <<"about to send handshake" <<std::endl;
     int res = send(sock, reinterpret_cast<const char *>(hs.encode()->buf()), 68, 0);
     if ( res == -1) {
       perror("handshake send");
       return;
     }
+    std::cout <<"handshake sent" <<std::endl;
     char* buf = (char *) malloc(68);
 
     res = -1;
