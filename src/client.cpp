@@ -104,6 +104,7 @@ Client::run()
 //        pthread_create(&peer,NULL, connectPeer, args);
 	connectPeer(*it);
     }
+    listenForPeers();
     close(m_trackerSock);
     sleep(m_interval);
   } while(m_amount_downloaded < m_metaInfo.getLength());
@@ -384,7 +385,6 @@ void Client::handshake(std::string peerId, int sock) {
     //free(buf);
     bitfield(sock);
 
-
 }
 
 void Client::bitfield(int sock) {
@@ -549,4 +549,77 @@ int res = send(sock, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9
 int Client::getMessageLength(char* buf) {
   return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | (buf[3]);
 }
+
+void Client::acceptHandshake(int sock, std::string peerId) {
+    msg::HandShake hs(m_metaInfo.getHash(), peerId);
+    std::cout <<"accepted handshake" <<std::endl;
+    int res = send(sock, reinterpret_cast<const char *>(hs.encode()->buf()), 68, 0);
+    if ( res == -1) {
+      perror("handshake send");
+      return;
+    }
+    std::cout <<"handshake sent" <<std::endl;
+ 
+}
+
+void Client::acceptBitfield(int sock){
+  sbt::OBufferStream buf_stream;
+  buf_stream.write(m_bitfield, m_bitfield_size);
+  BufferPtr buf_ptr = buf_stream.buf();
+
+  msg::Bitfield bf(buf_ptr); 
+
+  int res = send(sock, reinterpret_cast<const char *>(bf.encode()->buf()), 5+m_bitfield_size, 0); 
+  if (res == -1) {
+    perror("bitfield send");
+    return;
+  }
+  std::cout << "bitfield sent" << std::endl;
+ 
+}
+
+void Client::unchoke(int sock) {
+  msg::Unchoke unchoke_msg; 
+
+  int res = send(sock, reinterpret_cast<const char *>(unchoke_msg.encode()->buf()), 5, 0); 
+  if (res == -1) {
+    perror("unchoke send");
+    return;
+  }
+  std::cout << "unchoke sent" << std::endl;
+}
+
+void Client::piece(int sock, int index, int begin){
+  // check for last piece...
+  int64_t piece_length = m_metaInfo.getPieceLength();
+
+  if (index == m_num_bits - 1) {
+    piece_length = m_metaInfo.getLength() % m_metaInfo.getPieceLength();
+  }
+  char* to_send = (char*) malloc(piece_length);
+  // read data from file
+  memcpy(to_send, m_file_byte_array + (index*m_metaInfo.getPieceLength()), piece_length);
+
+  sbt::OBufferStream buf_stream;
+  buf_stream.write(to_send, piece_length);
+  BufferPtr buf_ptr = buf_stream.buf();
+
+  msg::Piece piece_msg(index, begin, buf_ptr);
+
+  int res = send(sock, reinterpret_cast<const char *>(piece_msg.encode()->buf()), piece_length+13, 0); 
+  if (res == -1) {
+    perror("piece send");
+    return;
+  }
+  std::cout << "piece sent" << std::endl;
+}
+
+void Client::acceptHave(int index) {
+  int64_t piece_length = m_metaInfo.getPieceLength();
+  if (index == m_num_bits - 1)
+    piece_length = m_metaInfo.getLength() % m_metaInfo.getPieceLength();
+
+  m_amount_uploaded += piece_length;
+}
+
 } // namespace sbt

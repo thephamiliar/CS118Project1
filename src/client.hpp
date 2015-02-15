@@ -71,6 +71,13 @@ public:
   void have(int index, int sock);
   int getMessageLength(char* buf);
 
+  void listenForPeers();
+  void acceptHandshake(int sock, std::string peerId);
+  void acceptBitfield(int sock);
+  void unchoke(int sock);
+  void piece(int sock, int index, int begin);
+  void acceptHave(int index);
+
   void
   loadMetaInfo(const std::string& torrent);
 
