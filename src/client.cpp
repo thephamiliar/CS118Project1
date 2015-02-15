@@ -27,7 +27,7 @@
 #include <fstream>
 #include <boost/tokenizer.hpp>
 #include <boost/lexical_cast.hpp>
-
+#include <sys/socket.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -57,7 +57,7 @@ void * callConnectPeer(void* args);
 void * listenForPeers(void* args);
 void * listenForMessages(void* args);
 int getMessageLength(char* buf);
-
+bool finishedReadingFile = false;
 std::mutex bitfield_mutex, download, upload;
 Client::Client(const std::string& port, const std::string& torrent)
   : m_interval(3600)
@@ -101,9 +101,12 @@ Client::run()
       m_bitfield_size = num_bytes;
       m_num_bits = num_bits;
       m_file_byte_array = (char *) malloc(m_num_bits*m_metaInfo.getPieceLength()); 
+     
+      struct sbt::listen_args *l_args = new sbt::listen_args();
+      l_args->client = this;
+      pthread_create(&listen_peer, NULL, listenForPeers, l_args); 
       std::ifstream f("text.txt");
       if(f.good()) {
-        std::cout <<"found file" <<std::endl;
         memset(m_bitfield, 0xFF, num_bytes);
         have_file = true;
         f.seekg(0, std::ios::end);
@@ -114,9 +117,7 @@ Client::run()
       } else {
         memset(m_bitfield, 0, num_bytes);
       }
-     struct sbt::listen_args *l_args = new sbt::listen_args();
-      l_args->client = this;
-      pthread_create(&listen_peer, NULL, listenForPeers, l_args);
+      finishedReadingFile = true;
     }
     m_isFirstReq = false;
     for (unsigned int i = 0; !have_file && i < m_peers.size(); i++) {
@@ -452,7 +453,7 @@ void Client::bitfield(int sock, std::string peerId) {
       if (!((m_bitfield[i] >> j) & 0x01) && ((received_buf[i + 5] >> j) & 0x01)){
         int index = (i * 8) + (7 - j);
         bitfield_mutex.lock();
-        if(m_request_count[peerId] <= m_num_bits/m_request_count.size() && m_attempt_bits.find(index) == m_attempt_bits.end()) {
+        if((unsigned int)m_request_count[peerId] <= m_num_bits/m_request_count.size() && m_attempt_bits.find(index) == m_attempt_bits.end()) {
           m_request_count[peerId] += 1;
           m_attempt_bits.insert(index);
           bitfield_mutex.unlock();
@@ -590,34 +591,42 @@ void * listenForPeers(void* args) {
   struct sockaddr_in addr;
   addr.sin_family = AF_INET;
   addr.sin_port = htons(l_args->client->m_clientPort);
-  addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);//inet_addr("127.0.0.1");
   memset(addr.sin_zero, '\0', sizeof(addr.sin_zero));
 
-  if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == 1) {
+  int yes = 1;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
+    perror("setsockopt");
+  }
+
+  if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
     perror("bind");
-    return NULL;
+    
   }
   std::cout <<"listening for peers" <<std::endl;
   if (listen(sockfd, 10) == -1) {
-    perror("listen");
+    std::cout << "listen failed" <<std::endl;
     return NULL;
   }
 
   while(1) {
+    std::cout <<"listened " <<std::endl;
     pthread_t msg_thread;
     struct sockaddr_in clientAddr;
     socklen_t clientAddrSize;
     int clientSockfd = accept(sockfd, (struct sockaddr*)&clientAddr, &clientAddrSize);
-
+    std::cout <<"got here" <<std::endl;
     if (clientSockfd == -1) {
-      perror("accept");
+      std::cout << "accept failed" <<std::endl;
       return NULL;
     }
 
     char ipstr[INET_ADDRSTRLEN] = {'\0'};
     inet_ntop(clientAddr.sin_family, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
     std::cout << "Accept a connection from: " << ipstr << ":" << ntohs(clientAddr.sin_port) << std::endl;
-
+    while(!finishedReadingFile) {
+      sleep(0.1);
+    }
     struct sbt::listen_args* l_args_2 = new sbt::listen_args();
     l_args_2->clientSockfd = clientSockfd;
     l_args_2->client = l_args->client;

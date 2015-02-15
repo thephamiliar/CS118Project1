@@ -17,11 +17,11 @@ sleep 1
 
 ./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111 2>/dev/null &
 
-sleep 1
+sleep 3
 
 ./build/simple-bt 60207 ./tools/test-2.torrent > /dev/null 2>&1 &
 
-for ((x = 0; x < 2; x++)); do
+for ((x = 0; x < 10; x++)); do
   printf %s .
   sleep 1
 done

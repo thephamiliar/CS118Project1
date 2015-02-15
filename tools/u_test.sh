@@ -15,13 +15,15 @@ echo "Run 1 test case..."
 
 sleep 1
 
-./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111 2>/dev/null &
+./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111 -d &
 
 sleep 1
 
 ./build/simple-bt 60207 ./tools/test-2.torrent &
 
 sleep 5
+
+killall sbt-tracker > /dev/null 2>&1
 
 rm -f ./text.txt
 rm -f ./tools/text.txt
