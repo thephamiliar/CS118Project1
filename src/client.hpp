@@ -66,7 +66,7 @@ public:
   }
   void connectPeer(sbt::PeerInfo peer);
   void handshake(std::string peerId, int sock);
-  void bitfield(int sock);
+  void bitfield(int sock, std::string peerId);
   void interested(int sock, int index);
   void request(int sock, int index);
   void have(int index, int sock);
@@ -116,6 +116,7 @@ public:
   int m_amount_downloaded;
   int m_amount_uploaded;
   char * m_file_byte_array;
+  std::map <std::string, int> m_request_count;
 };
 struct peer_args {
   PeerInfo peerInfo;

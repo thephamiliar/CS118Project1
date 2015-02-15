@@ -125,6 +125,7 @@ Client::run()
 	// do not set up connection with same peer
       if (m_connectedPeers.find(m_peers[i].peerId) != m_connectedPeers.end()) 
         continue;
+      m_request_count.insert(make_pair(m_peers[i].peerId, 0));
       std::cout <<"make thread" <<std::endl;
       pthread_t peer;
       args = new sbt::peer_args();
@@ -417,11 +418,11 @@ void Client::handshake(std::string peerId, int sock) {
     received_hs.decode(buf_ptr);*/
     std::cout << "got handshake" << std::endl;
     //free(buf);
-    bitfield(sock);
+    bitfield(sock, peerId);
 
 }
 
-void Client::bitfield(int sock) {
+void Client::bitfield(int sock, std::string peerId) {
   sbt::OBufferStream buf_stream;
   buf_stream.write(m_bitfield, m_bitfield_size);
   BufferPtr buf_ptr = buf_stream.buf();
@@ -449,7 +450,8 @@ void Client::bitfield(int sock) {
       if (!((m_bitfield[i] >> j) & 0x01) && ((received_buf[i + 5] >> j) & 0x01)){
         int index = (i * 8) + (7 - j);
         bitfield_mutex.lock();
-        if(m_attempt_bits.find(index) == m_attempt_bits.end()) {
+        if(m_request_count[peerId] <= m_num_bits/m_request_count.size() && m_attempt_bits.find(index) == m_attempt_bits.end()) {
+          m_request_count[peerId] += 1;
           m_attempt_bits.insert(index);
           bitfield_mutex.unlock();
           interested(sock, index);
