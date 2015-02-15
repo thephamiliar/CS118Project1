@@ -85,7 +85,7 @@ public:
   connectTracker();
 
   void
-  sendTrackerRequest();
+  sendTrackerRequest(bool finished);
 
   void
   recvTrackerResponse();
@@ -105,7 +105,7 @@ public:
   uint64_t m_interval;
   bool m_isFirstReq;
   bool m_isFirstRes;
-
+  std::set<int> m_attempt_bits;
   std::vector<PeerInfo> m_peers;
   std::map<std::string, int> m_connectedPeers;
   char * m_bitfield;
@@ -117,7 +117,12 @@ public:
 };
 struct peer_args {
   PeerInfo peerInfo;
-  Client* client;
+  Client *client;
+//  char * bitfield;
+//  int bitfield_size;
+//  int num_bits;
+//  int amount_downloaded;
+//  int amount_uploaded;
 };
 
 

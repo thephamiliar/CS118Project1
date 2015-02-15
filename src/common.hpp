@@ -45,6 +45,8 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <vector>
+#include <set>
 #include <limits>
 #include <memory>
 #include <stdexcept>

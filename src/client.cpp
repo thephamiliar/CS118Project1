@@ -41,7 +41,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <map>
-//#include <pthread.h>
+#include <pthread.h>
 
 #include "msg/handshake.hpp"
 #include "msg/msg-base.hpp"
@@ -69,11 +69,11 @@ Client::Client(const std::string& port, const std::string& torrent)
 void
 Client::run()
 {
-  //pthread_t peer;
+  pthread_t peer;
   struct sbt::peer_args *args; 
   do {
     connectTracker();
-    sendTrackerRequest();
+    sendTrackerRequest(false);
     recvTrackerResponse();
     if (m_isFirstReq) {
       int64_t file_length = m_metaInfo.getLength();
@@ -96,18 +96,19 @@ Client::run()
       m_file_byte_array = (char *) malloc(m_num_bits*m_metaInfo.getPieceLength());
     }
     m_isFirstReq = false;
-    for (auto it = m_peers.begin(); it != m_peers.end(); it++) {
-//        args = (struct sbt::peer_args*)malloc(sizeof(struct sbt::peer_args));
-//        args->peerInfo = *it;
-//        args->client = this;
-
-//        pthread_create(&peer,NULL, connectPeer, args);
-	connectPeer(*it);
+    for (int i = 0; i < m_peers.size(); i++) {
+        args = new sbt::peer_args();
+        args->peerInfo = m_peers[i];
+        args->client = this;
+        pthread_create(&peer,NULL, callConnectPeer, args);
+	//connectPeer(m_peers[i]);
     }
-    listenForPeers();
+    //listenForPeers();
+        sendTrackerRequest(true); 
     close(m_trackerSock);
     sleep(m_interval);
   } while(m_amount_downloaded < m_metaInfo.getLength());
+ 
   std::cout << "finished downloading" <<std::endl;
 
   std::ofstream stream;
@@ -185,7 +186,7 @@ Client::connectTracker()
 }
 
 void
-Client::sendTrackerRequest()
+Client::sendTrackerRequest(bool finished)
 {
   TrackerRequestParam param;
 
@@ -193,12 +194,15 @@ Client::sendTrackerRequest()
   param.setPeerId("SIMPLEBT.TEST.PEERID"); //TODO:
   param.setIp("127.0.0.1"); //TODO:
   param.setPort(m_clientPort); //TODO:
- if (m_isFirstReq)
+ if (m_isFirstReq) {
     param.setEvent(TrackerRequestParam::STARTED);
-  else {
-    param.setUploaded(m_amount_uploaded); //TODO:
-    param.setDownloaded(m_amount_downloaded); //TODO:
-    param.setLeft(m_metaInfo.getLength() - m_amount_downloaded); //TODO:
+  }
+  param.setUploaded(m_amount_uploaded); //TODO:
+  param.setDownloaded(m_amount_downloaded); //TODO:
+  param.setLeft(m_metaInfo.getLength() - m_amount_downloaded); //TODO:
+  if (finished) {
+    std::cout << "u: " << m_amount_uploaded << "\n d: " << m_amount_downloaded << std::endl;
+    param.setEvent(TrackerRequestParam::COMPLETED);
   }
   //std::string path = m_trackerFile;
   std::string path = m_metaInfo.getAnnounce();
@@ -415,9 +419,12 @@ void Client::bitfield(int sock) {
     for (int j = 7; j >= 0; j--) {
       if (!((m_bitfield[i] >> j) & 0x01) && ((received_buf[i + 5] >> j) & 0x01)){
         int index = (i * 8) + (7 - j); 
-        interested(sock, index);
-        found = true;
-        break;
+        if(m_attempt_bits.find(index) == m_attempt_bits.end()) {
+          m_attempt_bits.insert(index);
+          interested(sock, index);
+          found = true;
+          break;
+        }
       }
     }
     if(found)
@@ -481,16 +488,12 @@ void Client::request(int sock, int index) {
       return;
     }
     if (received_buf[4] == 7) {
-        std::cout <<"hello1" << std::endl;
       int msg_length = getMessageLength(received_buf);
-      std::cout <<"piece_length" << msg_length <<std::endl;
       if (index == m_num_bits-1) {
         memcpy(piece_buf+curr_length, received_buf+13, m_metaInfo.getLength() % m_metaInfo.getPieceLength());
       } else {
-  std::cout <<"hello:"<<msg_length << std::endl;
         memcpy(piece_buf+curr_length, received_buf+13, msg_length-9);
       }
-      std::cout << "got piece" << std::endl;
       curr_length += (msg_length - 9);
       memset(received_buf, 0, piece_length+13);
     } else {
@@ -513,14 +516,16 @@ void Client::request(int sock, int index) {
 
     //CRITICAL SECTION PLS
     if(memcmp(piece_hash_string.c_str(), known_piece_hash, 20) == 0) {
+      have(index, sock);
       std::cout << "hashes match" << std::endl;
       //write to file
       memcpy(m_file_byte_array + (index*m_metaInfo.getPieceLength()), piece_buf, piece_length);
+      if( index == m_num_bits-1) {
+        piece_length = m_metaInfo.getLength() % m_metaInfo.getPieceLength();
+      }
       m_amount_downloaded += piece_length;
       m_bitfield[index/8] |= (0x1 << (7 - (index % 8)));
-    std::cout << "downloaded:" << m_amount_downloaded << std::endl;
    
-      have(index, sock);
       //free(received_buf);
       //free(piece_buf);
     } else {
@@ -536,7 +541,10 @@ void Client::request(int sock, int index) {
 void Client::have(int index, int sock) {
    msg::Have have_msg(index);
 int res = send(sock, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9, 0);
-
+  if (res == -1) {
+    perror("have send");
+    return;
+  } 
 /*  for (auto it = m_connectedPeers.begin(); it != m_connectedPeers.end(); it++) {
     if (res == -1) {
       perror("have send");
