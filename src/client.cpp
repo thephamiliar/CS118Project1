@@ -42,6 +42,9 @@
 #include <stdlib.h>
 #include <map>
 #include <pthread.h>
+#include <thread>
+#include <mutex>
+#include <sys/stat.h>
 
 #include "msg/handshake.hpp"
 #include "msg/msg-base.hpp"
@@ -50,7 +53,11 @@
 namespace sbt {
 
 void * callConnectPeer(void* args);
+void * listenForPeers(void* args);
+void * listenForMessages(void* args);
+int getMessageLength(char* buf);
 
+std::mutex bitfield_mutex, download, upload;
 Client::Client(const std::string& port, const std::string& torrent)
   : m_interval(3600)
   , m_isFirstReq(true)
@@ -69,8 +76,9 @@ Client::Client(const std::string& port, const std::string& torrent)
 void
 Client::run()
 {
-  pthread_t peer;
-  struct sbt::peer_args *args; 
+  pthread_t listen_peer;
+  struct sbt::peer_args *args;
+  bool have_file = false; 
   do {
     connectTracker();
     sendTrackerRequest(false);
@@ -89,31 +97,48 @@ Client::run()
         num_bytes++;
       }
       m_bitfield = (char *) malloc(num_bytes);
-      memset(m_bitfield, 0, num_bytes);
- 
+      std::ifstream f("text.txt");
+      if(f.good()) {
+        memset(m_bitfield, 0xFF, num_bytes);
+        have_file = true;
+      } else {
+        memset(m_bitfield, 0, num_bytes);
+      }
       m_bitfield_size = num_bytes;
       m_num_bits = num_bits;
       m_file_byte_array = (char *) malloc(m_num_bits*m_metaInfo.getPieceLength());
+      struct sbt::listen_args *l_args = new sbt::listen_args();
+      l_args->client = this;
+      pthread_create(&listen_peer, NULL, listenForPeers, l_args);
     }
     m_isFirstReq = false;
-    for (int i = 0; i < m_peers.size(); i++) {
-        args = new sbt::peer_args();
-        args->peerInfo = m_peers[i];
-        args->client = this;
-        pthread_create(&peer,NULL, callConnectPeer, args);
-	//connectPeer(m_peers[i]);
+    for (unsigned int i = 0; !have_file && i < m_peers.size(); i++) {
+      if (m_peers[i].ip == "127.0.0.1" && m_peers[i].port == m_clientPort)
+         continue;
+	// do not set up connection with same peer
+      if (m_connectedPeers.find(m_peers[i].peerId) != m_connectedPeers.end()) 
+        continue;
+
+      pthread_t peer;
+      args = new sbt::peer_args();
+      args->peerInfo = m_peers[i];
+      args->client = this;
+      pthread_create(&peer,NULL, callConnectPeer, args);
     }
-    //listenForPeers();
-        sendTrackerRequest(true); 
     close(m_trackerSock);
     sleep(m_interval);
   } while(m_amount_downloaded < m_metaInfo.getLength());
- 
-  std::cout << "finished downloading" <<std::endl;
 
-  std::ofstream stream;
-  stream.open("text.txt", std::ofstream::out);
-  stream << m_file_byte_array;
+  if (!have_file) {  
+    connectTracker();
+    sendTrackerRequest(true); 
+    close(m_trackerSock);
+
+    std::ofstream stream;
+    stream.open("text.txt", std::ofstream::out);
+    stream << m_file_byte_array;
+  }
+
 }
 
 void
@@ -201,7 +226,6 @@ Client::sendTrackerRequest(bool finished)
   param.setDownloaded(m_amount_downloaded); //TODO:
   param.setLeft(m_metaInfo.getLength() - m_amount_downloaded); //TODO:
   if (finished) {
-    std::cout << "u: " << m_amount_uploaded << "\n d: " << m_amount_downloaded << std::endl;
     param.setEvent(TrackerRequestParam::COMPLETED);
   }
   //std::string path = m_trackerFile;
@@ -311,6 +335,7 @@ Client::recvTrackerResponse()
 }
 
 void * callConnectPeer(void * args) {
+  pthread_detach(pthread_self());
   struct sbt::peer_args *p_args = (struct sbt::peer_args*)args;
   p_args->client->connectPeer(p_args->peerInfo);
   return NULL;
@@ -355,7 +380,6 @@ void Client::connectPeer(sbt::PeerInfo peer) {
 	// if successfully connected, add to connected peers set
 	m_connectedPeers.insert(make_pair(peer.peerId, peerSock));
 	handshake(peer.peerId, peerSock);
-        m_connectedPeers.erase(peer.peerId);
         close(peerSock);
 	freeaddrinfo(res);
         std::cout << "done" <<std::endl;
@@ -363,7 +387,7 @@ void Client::connectPeer(sbt::PeerInfo peer) {
 
 void Client::handshake(std::string peerId, int sock) {
 
-    msg::HandShake hs(m_metaInfo.getHash(), peerId);
+    msg::HandShake hs(m_metaInfo.getHash(), "SIMPLEBT.TEST.PEERID");
     std::cout <<"about to send handshake" <<std::endl;
     int res = send(sock, reinterpret_cast<const char *>(hs.encode()->buf()), 68, 0);
     if ( res == -1) {
@@ -413,22 +437,18 @@ void Client::bitfield(int sock) {
 
   std::cout << "bitfield received: " << std::endl; //<< std::hex << (int) received_buf[5] << std::hex << (int)received_buf[6] << std::hex << (int) received_buf[7] << std::endl;
   // send requests for missing pieces
-  bool found = false;
   for (int i = 0; i < m_bitfield_size; i++) {
     // figure out missing pieces
     for (int j = 7; j >= 0; j--) {
       if (!((m_bitfield[i] >> j) & 0x01) && ((received_buf[i + 5] >> j) & 0x01)){
-        int index = (i * 8) + (7 - j); 
+        int index = (i * 8) + (7 - j);
+         
         if(m_attempt_bits.find(index) == m_attempt_bits.end()) {
           m_attempt_bits.insert(index);
           interested(sock, index);
-          found = true;
-          break;
         }
       }
     }
-    if(found)
-      break;
   }
   //free(received_buf);
   return;
@@ -461,9 +481,9 @@ void Client::interested(int sock, int index) {
 
 void Client::request(int sock, int index) {
   uint64_t piece_length = m_metaInfo.getPieceLength();
-  //if (index == m_num_bits-1) 
-  //  piece_length = m_metaInfo.getLength() % piece_length;
-  msg::Request request_msg(index, 0, (uint32_t) m_metaInfo.getPieceLength());
+  if (index == m_num_bits-1) 
+    piece_length = m_metaInfo.getLength() % piece_length;
+  msg::Request request_msg(index, 0, piece_length);
   int res = send(sock, reinterpret_cast<const char *>(request_msg.encode()->buf()), 17, 0);
   if (res == -1) {
     perror("request piece send");
@@ -475,12 +495,7 @@ void Client::request(int sock, int index) {
   char * received_buf = (char *) malloc(piece_length+13);
   
   unsigned int curr_length = 0;
-  char* piece_buf;
-  if (index == m_num_bits-1) {
-    piece_buf = (char *)malloc(m_metaInfo.getLength() % m_metaInfo.getPieceLength());
-  } else {
-    piece_buf = (char *)malloc(piece_length);
-  }
+  char* piece_buf = (char *)malloc(piece_length);
   while (curr_length < piece_length) {
     res = recv(sock, received_buf, piece_length+13, 0);
     if (res == -1) {
@@ -523,7 +538,9 @@ void Client::request(int sock, int index) {
       if( index == m_num_bits-1) {
         piece_length = m_metaInfo.getLength() % m_metaInfo.getPieceLength();
       }
+      download.lock();
       m_amount_downloaded += piece_length;
+      download.unlock();
       m_bitfield[index/8] |= (0x1 << (7 - (index % 8)));
    
       //free(received_buf);
@@ -540,25 +557,150 @@ void Client::request(int sock, int index) {
 
 void Client::have(int index, int sock) {
    msg::Have have_msg(index);
-int res = send(sock, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9, 0);
-  if (res == -1) {
-    perror("have send");
-    return;
-  } 
-/*  for (auto it = m_connectedPeers.begin(); it != m_connectedPeers.end(); it++) {
+  
+  for (auto it = m_connectedPeers.begin(); it != m_connectedPeers.end(); it++) {
+    int res = send(sock, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9, 0);
     if (res == -1) {
       perror("have send");
       return;
     }
-  }*/
+  }
   std::cout << "send haves" << std::endl;
 }
 
-int Client::getMessageLength(char* buf) {
+int getMessageLength(char* buf) {
   return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | (buf[3]);
 }
 
+void * listenForPeers(void* args) {
+  pthread_detach(pthread_self());
+  sbt::listen_args *l_args = (sbt::listen_args*) args; 
+  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(l_args->client->m_clientPort);
+  addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  memset(addr.sin_zero, '\0', sizeof(addr.sin_zero));
+
+  if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == 1) {
+    perror("bind");
+    return NULL;
+  }
+  std::cout <<"listening for peers" <<std::endl;
+  while(1) {
+    if (listen(sockfd, 1) == -1) {
+      perror("listen");
+      return NULL;
+    }
+
+    pthread_t msg_thread;
+    struct sockaddr_in clientAddr;
+    socklen_t clientAddrSize;
+    int clientSockfd = accept(sockfd, (struct sockaddr*)&clientAddr, &clientAddrSize);
+
+    if (clientSockfd == -1) {
+      perror("accept");
+      return NULL;
+    }
+
+    char ipstr[INET_ADDRSTRLEN] = {'\0'};
+    inet_ntop(clientAddr.sin_family, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
+    std::cout << "Accept a connection from: " << ipstr << ":" << ntohs(clientAddr.sin_port) << std::endl;
+
+    struct sbt::listen_args* l_args_2 = new sbt::listen_args();
+    l_args_2->clientSockfd = clientSockfd;
+    l_args_2->client = l_args->client;
+    pthread_create(&msg_thread, NULL, listenForMessages, l_args_2);
+  }  
+  return NULL;
+  
+}
+
+void * listenForMessages(void *args) {
+  pthread_detach(pthread_self());
+  sbt::listen_args *l_args = (sbt::listen_args*) args; 
+ 
+
+  int clientSockfd = l_args->clientSockfd;
+  Client* client = l_args->client;
+  bool isEnd = false;
+  char *buf = (char*) malloc(68);
+  memset( buf, 0, 68);
+  
+  if (recv(clientSockfd, buf, 68, 0) == -1) {
+    perror("recv");
+    return NULL;
+  }
+  std::cout << "got handshake" << std::endl;
+  std::cout <<buf << std::endl;
+  // accept handshake
+  std::string string_buf(buf);
+  std::cout << string_buf.size() << std::endl;
+  client->acceptHandshake(clientSockfd, string_buf.substr(47));
+
+  while (!isEnd) {
+    char* bitfield_buf = (char*) malloc(client->m_bitfield_size+5);
+
+    //wait for bitfield
+    if (recv(clientSockfd, bitfield_buf, client->m_bitfield_size+5, 0) == -1) {
+      perror("recv");
+      return NULL;
+    }
+    std::cout << std::hex << (int) bitfield_buf[0] << std::hex << (int) bitfield_buf[1] <<  std::hex << (int) bitfield_buf[2] <<  std::hex << (int) bitfield_buf[3] <<  std::hex << (int) bitfield_buf[4] << std::endl; 
+    if(bitfield_buf[4] == 5) {
+      client->acceptBitfield(clientSockfd);
+    } else {
+      std::cout << "upload: bitfield err" <<std::endl;
+      return NULL;
+    }
+    
+    //wait for interested
+    if (recv(clientSockfd, buf, 5, 0) == -1) {
+      perror("recv");
+      return NULL;
+    }
+    if(buf[4] == 2) {
+      client->unchoke(clientSockfd);
+    } else {
+      std::cout << "upload unchoke err" << std::endl;
+      return NULL;
+    }
+
+    //wait for request
+    if (recv(clientSockfd, buf, 17, 0) == -1) {
+      perror("recv");
+      return NULL;
+    }
+    if(buf[4] == 6) {
+      int index, piece_length;
+      index = getMessageLength(buf+5);
+      piece_length = getMessageLength(buf+13);
+      client->piece(clientSockfd, index, piece_length);
+    } else {
+      std::cout << "upload request err" << std::endl;
+      return NULL;
+    }
+
+    //wait for have
+    if (recv(clientSockfd, buf, 9, 0) == -1) {
+      perror("recv");
+      return NULL;
+    }
+    if(buf[4] == 4) {
+      int index = getMessageLength(buf+5);
+      client->acceptHave(index);
+    } else {
+      std::cout << "upload have err" << std::endl;
+      return NULL;
+    }
+    
+  }
+  close(clientSockfd);
+  return NULL;
+} 
+
 void Client::acceptHandshake(int sock, std::string peerId) {
+    std::cout << peerId <<std::endl;
     msg::HandShake hs(m_metaInfo.getHash(), peerId);
     std::cout <<"accepted handshake" <<std::endl;
     int res = send(sock, reinterpret_cast<const char *>(hs.encode()->buf()), 68, 0);
@@ -597,13 +739,13 @@ void Client::unchoke(int sock) {
   std::cout << "unchoke sent" << std::endl;
 }
 
-void Client::piece(int sock, int index, int begin){
-  // check for last piece...
+void Client::piece(int sock, int index, int piece_length){
+/*  // check for last piece...
   int64_t piece_length = m_metaInfo.getPieceLength();
-
   if (index == m_num_bits - 1) {
     piece_length = m_metaInfo.getLength() % m_metaInfo.getPieceLength();
   }
+*/
   char* to_send = (char*) malloc(piece_length);
   // read data from file
   memcpy(to_send, m_file_byte_array + (index*m_metaInfo.getPieceLength()), piece_length);
@@ -612,7 +754,7 @@ void Client::piece(int sock, int index, int begin){
   buf_stream.write(to_send, piece_length);
   BufferPtr buf_ptr = buf_stream.buf();
 
-  msg::Piece piece_msg(index, begin, buf_ptr);
+  msg::Piece piece_msg(index, 0, buf_ptr);
 
   int res = send(sock, reinterpret_cast<const char *>(piece_msg.encode()->buf()), piece_length+13, 0); 
   if (res == -1) {

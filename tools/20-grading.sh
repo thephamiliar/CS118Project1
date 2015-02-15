@@ -15,7 +15,7 @@ echo "Run 6 test cases..."
 
 sleep 1
 
-./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111 2>/dev/null &
+./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111 2>/dev/null  &
 
 sleep 1
 

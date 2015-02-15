@@ -26,6 +26,7 @@
 #include "meta-info.hpp"
 #include "tracker-response.hpp"
 #include <map>
+#include <mutex>
 
 namespace sbt {
 
@@ -69,13 +70,11 @@ public:
   void interested(int sock, int index);
   void request(int sock, int index);
   void have(int index, int sock);
-  int getMessageLength(char* buf);
 
-  void listenForPeers();
   void acceptHandshake(int sock, std::string peerId);
   void acceptBitfield(int sock);
   void unchoke(int sock);
-  void piece(int sock, int index, int begin);
+  void piece(int sock, int index, int piece_length);
   void acceptHave(int index);
 
   void
@@ -102,6 +101,9 @@ public:
 
   fd_set m_readSocks;
 
+  std::mutex upload_mutex;
+  std::mutex download_mutex;
+
   uint64_t m_interval;
   bool m_isFirstReq;
   bool m_isFirstRes;
@@ -118,13 +120,11 @@ public:
 struct peer_args {
   PeerInfo peerInfo;
   Client *client;
-//  char * bitfield;
-//  int bitfield_size;
-//  int num_bits;
-//  int amount_downloaded;
-//  int amount_uploaded;
 };
-
+struct listen_args {
+  Client *client;
+  int clientSockfd;
+};
 
 } // namespace sbt
 
