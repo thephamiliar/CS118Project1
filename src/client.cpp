@@ -118,7 +118,7 @@ Client::run()
 	// do not set up connection with same peer
       if (m_connectedPeers.find(m_peers[i].peerId) != m_connectedPeers.end()) 
         continue;
-
+      std::cout <<"make thread" <<std::endl;
       pthread_t peer;
       args = new sbt::peer_args();
       args->peerInfo = m_peers[i];
