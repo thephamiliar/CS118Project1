@@ -131,6 +131,7 @@ Client::run()
 
   if (!have_file) {  
     connectTracker();
+    std::cout <<"send completed" << std::endl;
     sendTrackerRequest(true); 
     close(m_trackerSock);
 
@@ -559,7 +560,7 @@ void Client::have(int index, int sock) {
    msg::Have have_msg(index);
   
   for (auto it = m_connectedPeers.begin(); it != m_connectedPeers.end(); it++) {
-    int res = send(sock, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9, 0);
+    int res = send(it->second, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9, 0);
     if (res == -1) {
       perror("have send");
       return;
