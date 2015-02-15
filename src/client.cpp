@@ -595,12 +595,12 @@ void * listenForPeers(void* args) {
     return NULL;
   }
   std::cout <<"listening for peers" <<std::endl;
-  while(1) {
-    if (listen(sockfd, 1) == -1) {
-      perror("listen");
-      return NULL;
-    }
+  if (listen(sockfd, 10) == -1) {
+    perror("listen");
+    return NULL;
+  }
 
+  while(1) {
     pthread_t msg_thread;
     struct sockaddr_in clientAddr;
     socklen_t clientAddrSize;
@@ -675,7 +675,7 @@ void * listenForMessages(void *args) {
       std::cout << "upload unchoke err" << std::endl;
       return NULL;
     }
-    while (true) {
+    while (client->m_amount_uploaded < client->m_metaInfo.getLength()) {
       //wait for request
       if (recv(clientSockfd, buf, 17, 0) == -1) {
         perror("recv");
@@ -684,7 +684,11 @@ void * listenForMessages(void *args) {
       if(buf[4] == 6) {
         int index, piece_length;
         index = getMessageLength(buf+5);
-        piece_length = getMessageLength(buf+13);
+        // check for last piece...
+        piece_length = client->m_metaInfo.getPieceLength();
+        if (index == client->m_num_bits - 1) {
+          piece_length = client->m_metaInfo.getLength() % client->m_metaInfo.getPieceLength();
+        }
         client->piece(clientSockfd, index, piece_length);
       } else {
         std::cout << "upload request err" << std::endl;
@@ -704,6 +708,7 @@ void * listenForMessages(void *args) {
         return NULL;
       }
     }
+    isEnd = true;
   }
   close(clientSockfd);
   return NULL;
@@ -749,13 +754,10 @@ void Client::unchoke(int sock) {
   std::cout << "unchoke sent" << std::endl;
 }
 
-void Client::piece(int sock, int index, int piece_length){
-/*  // check for last piece...
-  int64_t piece_length = m_metaInfo.getPieceLength();
-  if (index == m_num_bits - 1) {
-    piece_length = m_metaInfo.getLength() % m_metaInfo.getPieceLength();
-  }
-*/
+void Client::piece(int sock, int index, int piece_length) {
+
+  std::cout << "requested piece: " << index << std::endl;
+  std::cout << "piece_length: " << piece_length << std::endl;
   char* to_send = (char*) malloc(piece_length);
   // read data from file
   memcpy(to_send, m_file_byte_array + (index*m_metaInfo.getPieceLength()), piece_length);
