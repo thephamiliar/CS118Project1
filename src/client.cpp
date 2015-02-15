@@ -137,6 +137,9 @@ Client::run()
     sleep(m_interval);
   } while(m_amount_downloaded < m_metaInfo.getLength());
 
+  for(auto it = m_connectedPeers.begin(); it != m_connectedPeers.end(); it++)
+    close(it->second);
+
   if (!have_file) {  
     connectTracker();
     sendTrackerRequest();
@@ -372,7 +375,7 @@ void Client::connectPeer(sbt::PeerInfo peer) {
 
 	int status = 0;
 	if ((status = getaddrinfo(peer.ip.c_str(), std::to_string(peer.port).c_str(), &hints, &res)) != 0)
-		std::cout << "Cannot resolve peer ip" << std::endl;
+		throw Error("Cannot resolve peer ip");
 
 	struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
 	char ipstr[INET_ADDRSTRLEN] = {'\0'};
@@ -380,14 +383,13 @@ void Client::connectPeer(sbt::PeerInfo peer) {
 
 	std::cout <<"trying to connect" << std::endl;
 	if (connect(peerSock, res->ai_addr, res->ai_addrlen) == -1) {
-		perror("connect");
+		throw Error("connect to peer");
 		return;
 	}
 
 	// if successfully connected, add to connected peers set
 	m_connectedPeers.insert(make_pair(peer.peerId, peerSock));
 	handshake(peer.peerId, peerSock);
-        close(peerSock);
 	freeaddrinfo(res);
         std::cout << "done" <<std::endl;
 }
@@ -398,7 +400,7 @@ void Client::handshake(std::string peerId, int sock) {
     std::cout <<"about to send handshake" <<std::endl;
     int res = send(sock, reinterpret_cast<const char *>(hs.encode()->buf()), 68, 0);
     if ( res == -1) {
-      perror("handshake send");
+      throw Error("handshake");
       return;
     }
     std::cout <<"handshake sent" <<std::endl;
@@ -542,7 +544,7 @@ void Client::request(int sock, int index) {
     //CRITICAL SECTION PLS
     if(memcmp(piece_hash_string.c_str(), known_piece_hash, 20) == 0) {
       have(index, sock);
-      std::cout << "hashes match" << std::endl;
+      std::cout << "hashes match: " <<index << std::endl;
       //write to file
       memcpy(m_file_byte_array + (index*m_metaInfo.getPieceLength()), piece_buf, piece_length);
       if( index == m_num_bits-1) {
@@ -572,7 +574,6 @@ void Client::have(int index, int sock) {
     int res = send(it->second, reinterpret_cast<const char *>(have_msg.encode()->buf()), 9, 0);
     if (res == -1) {
       perror("have send");
-      return;
     }
   }
   std::cout << "send haves" << std::endl;

@@ -11,12 +11,12 @@ cp ./tools/text.txt.bak ./tools/text.txt
 
 echo "Run 6 test cases..."
 
-./tools/sbt-tracker 60207 ./tools/test-2.torrent &
+./tools/sbt-tracker 60207 ./tools/test-2.torrent > ./test.result 2>/dev/null &
 
 sleep 1
 
-./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111  &
-#./tools/sbt-peer 22222 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.222222  &
+./tools/sbt-peer 11111 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.111111 -d &
+./tools/sbt-peer 22222 ./tools/test-2.torrent ./tools/ SIMPLEBT.TEST.222222 -d &
 
 
 sleep 1
