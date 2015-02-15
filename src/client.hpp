@@ -84,7 +84,7 @@ public:
   connectTracker();
 
   void
-  sendTrackerRequest(bool finished);
+  sendTrackerRequest();
 
   void
   recvTrackerResponse();
